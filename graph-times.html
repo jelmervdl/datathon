@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.links line {
+  stroke: #999;
+  stroke-opacity: 0.6;
+}
+
+.nodes circle {
+  stroke: #fff;
+  stroke-width: 1.5px;
+}
+
+#window {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  background: #eee;
+}
+
+#window svg .bar {
+  fill: steelblue;
+}
+
+#window svg .bar:hover {
+  fill: brown;
+}
+
+#window svg .axis--x path {
+  display: none;
+}
+
+svg {
+  display: block;
+  margin: 0 auto;
+}
+
+#popup {
+  position: fixed;
+  top: 50;
+  bottom: 50;
+  right: 50;
+  width: 400;
+  display: none;
+}
+
+body.show-popup #popup {
+  display: block;
+}
+
+#window-props {
+  position: fixed;
+  top: 0;
+  left:0;
+  right: 0;
+  height:24px;
+  box-sizing: border-box;
+}
+
+.make-me-visible-pretty-please {
+  font: 18px/24px system-ui;
+  padding: 4px;
+  background: white;
+}
+
+#countries {
+  fill: #cde;
+  stroke: #fff;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+</style>
+<svg width="960" height="600"></svg>
+<div id="window">
+  <svg id="frequency" width="960" height="100"></svg>
+</div>
+<div id="window-props">
+  <span class="make-me-visible-pretty-please">Showing connections found in tweets between <span id="window-start">the big bang</span> and <span id="window-end">the day we invent time travel</span> with more than <span id="window-threshold">infinimount</span> exchanged messages.</span>
+</div>
+<div id="popup">
+  <button class="close">&times;</button>
+  <div id="popup-content">
+    
+  </div>
+</div>
+<script src="d3.v4.min.js"></script>
+<script src="topojson.v1.min.js"></script>
+<script>
+
+Date.prototype.getWeekNumber = function(){
+  var d = new Date(+this);
+  d.setHours(0,0,0,0);
+  d.setDate(d.getDate()+4-(d.getDay()||7));
+  return Math.ceil((((d-new Date(d.getFullYear(),0,1))/8.64e7)+1)/7);
+};
+
+var svg = d3.select("svg"),
+    width = svg.attr("width"),
+    height = svg.attr("height");
+
+var popup = document.getElementById('popup-content'),
+  thresholdEl = document.getElementById('window-threshold')
+  windowStartEl = document.getElementById('window-start')
+  windowEndEl = document.getElementById('window-end');
+
+var freq = d3.select('#frequency');
+
+var projection = d3.geoMercator()
+  .scale(150)
+  .translate([width / 2, height / 1.5]);
+
+function resize() {
+  svg.attr('width', document.body.clientWidth);
+  svg.attr('height', document.body.clientHeight - 100);
+  freq.attr('width', document.body.clientWidth - 8);
+  projection.translate([svg.attr("width") / 2, svg.attr("height") / 1.5])
+}
+
+window.addEventListener('resize', resize);
+
+window.addEventListener('DOMContentLoaded', resize);
+
+function date(date) {
+  return [date.getDay(), date.getMonth(), date.getFullYear()].join('-');
+}
+
+var container = svg.append("g");
+
+var link = container.append("g").attr("class", "links").selectAll("line");
+var node = container.append("g").attr("class", "nodes").selectAll("circle");
+
+var simulation = d3.forceSimulation()
+    .force("link", d3.forceLink().id(function(d) { return d.id; }))
+    .force("charge", d3.forceManyBody())
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    .on("tick", ticked);
+
+function ticked() {
+  link
+    .attr("x1", function(d) { return d.source.x; })
+    .attr("y1", function(d) { return d.source.y; })
+    .attr("x2", function(d) { return d.target.x; })
+    .attr("y2", function(d) { return d.target.y; });
+
+  node
+    .attr("cx", function(d) { return d.x; })
+    .attr("cy", function(d) { return d.y; });
+}
+
+var zoom = d3.zoom()
+    .scaleExtent([0.1, 10])
+    .on("zoom", zoomed);
+
+svg.call(zoom);
+
+var path = d3.geoPath()
+    .projection(projection);
+
+var geog = container.append("g");
+
+// d3.json("countries.topo.json", function(error, us) {
+//   geog.append("g")
+//     .attr("id", "countries")
+//     .selectAll("path")
+//     .data(topojson.feature(us, us.objects.countries).features)
+//     .enter()
+//     .append("path")
+//     .attr("id", function(d) { return d.id; })
+//     .attr("d", path);
+// });
+
+var locations = {};
+
+// build the arrow.
+svg.append("svg:defs").selectAll("marker")
+    .data(["end"])      // Different link/path types can be defined here
+  .enter().append("svg:marker")    // This section adds in the arrows
+    .attr("id", String)
+    .attr("viewBox", "0 -5 10 10")
+    .attr("refX", 12.5)
+    .attr("refY", 0)
+    .attr("markerWidth", 5)
+    .attr("markerHeight", 5)
+    .attr("orient", "auto")
+  .append("svg:path")
+    .attr("d", "M0,-5L10,0L0,5");
+
+d3.csv("dangerous-users.txt",
+  function(err, dangerousUsers) {
+    var dangerous = {};
+
+    dangerousUsers.forEach(function(row) {
+      dangerous[row.user] = parseFloat(row.score);
+    });
+
+    d3.json("graph-times-complete-min-100-fake.json", function(error, graph) {
+      if (error) throw error;
+
+      graph.nodes.forEach((node) => {
+        node.isisis = dangerous[node.label] || 1.0;
+      })
+
+      graph.edges.forEach(function(edge) {
+        edge.times = edge.times.map((time) => new Date(time));
+      });
+
+      d3.json("user-locations.json", function(error, users) {
+        graph.nodes.forEach((node) => {
+          if (node.label in users) {
+            node.fixed = true;
+            node.geometry = [users[node.label].long, users[node.label].lat];
+          }
+        });
+      });
+
+      barChart(graph.edges, updateWindow);
+
+      var timeWindow = {
+        start: new Date(),
+        end: new Date(0)
+      };
+
+      graph.edges.forEach(function(edge) {
+        edge.times.forEach(function(time) {
+          if (timeWindow.start > time)
+            timeWindow.start = time;
+
+          if (timeWindow.end < time)
+            timeWindow.end = time;
+        });
+      });
+
+      function update(nodes, edges) {
+        node = node.data(nodes, (d) => d.id);
+        node.exit().remove();
+        node = node.enter().append("circle")
+            .attr("r", (d) => 5 * Math.sqrt(d.isisis))
+            .attr("fill", (d) => d.isisis > 1.0 ? '#f00' : '#1f77b4')
+            .on('click', (e) => showTweets(e.label))
+            .call(d3.drag()
+                .on("start", dragstarted)
+                .on("drag", dragged)
+                .on("end", dragended))
+            // .append('title').text((d) => d.label)
+          .merge(node);
+
+        node.append('title').text((d) => d.label);
+
+        link = link.data(edges, (d) => d.source.id + "-" + d.target.id);
+        link.exit().remove();
+        link = link.enter().append("line").attr("marker-end", "url(#end)").merge(link);
+        link.attr("stroke-width", (d) => Math.sqrt(d.times.length));
+
+        simulation.nodes(nodes);
+        simulation.force("link").links(edges);
+        simulation.alpha(1).restart();
+      }
+
+      function histogram(points) {
+        let hist = {};
+        points.forEach((point) => {
+          if (!(point in hist))
+            hist[point] = 0;
+
+          hist[point] += 1;
+        });
+        return Object.keys(hist).map((v) => parseInt(v, 10)).sort((a, b) => b - a);
+      }
+
+      function updateWindow(slice) {
+        let edges = graph.edges.map(function(edge) {
+          return {
+            source: edge.source,
+            target: edge.target,
+            times: edge.times.filter(function(time) {
+              return time > slice.start && time < slice.end;
+            })
+          }
+        });
+
+        let timesFreq = histogram(edges.map((edge) => edge.times.length)),
+          threshold = timesFreq[Math.ceil(0.8 * timesFreq.length)];
+
+        edges = edges.filter(function(edge) {
+          return edge.source.isisis > 1.0 || edge.target.isisis > 1.0 || edge.times.length > threshold;
+        });
+
+        let requiredNodes = {};
+
+        edges.forEach(function(edge) {
+          requiredNodes[edge.source] = true;
+          requiredNodes[edge.target] = true;
+        });
+
+        let nodes = graph.nodes.filter(function(node) {
+          return node.id in requiredNodes;
+        });
+
+        thresholdEl.textContent = threshold;
+        windowStartEl.textContent = date(slice.start);
+        windowEndEl.textContent = date(slice.end);
+
+        console.log(slice, 'matches %d nodes and %d edges', nodes.length, edges.length);
+
+        update(nodes, edges);
+      }
+    });
+  }
+);
+
+function zoomed() {
+  container.attr("transform", d3.event.transform);
+}
+
+function dragstarted(d) {
+  if (!d3.event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x;
+  d.fy = d.y;
+}
+
+function dragged(d) {
+  d.fx = d3.event.x;
+  d.fy = d3.event.y;
+}
+
+function dragended(d) {
+  if (!d3.event.active) simulation.alphaTarget(0);
+  d.fx = null;
+  d.fy = null;
+}
+
+function fetchJSON(url) {
+  return new Promise((resolve, reject) => {
+    let request = new XMLHTTPRequest();
+    request.open('GET', url, true);
+    request.onload = () => {
+      if (request.status == 200)
+        resolve(request.responseText);
+      else
+        reject([request.status, request.statusText, request.responseText]);
+    }
+  });
+}
+
+function showTweets(user) {
+  fetchJSON('/tweets/' + encodeURIComponent(user))
+    .then((tweets) => {
+      popup.innerHTML = '';
+
+      tweets.forEach((tweet) => {
+        let p = document.createElement(p);
+        p.textContent = tweet;
+        popup.appendChild(p);
+      });
+
+      document.body.classList.add('show-popup');
+    });
+}
+
+function barChart(edges, updateWindow)
+{
+  var events = [];
+
+  edges.forEach(function(edge) {
+    edge.times.forEach(function(date) {
+      events.push({
+        date: date
+      });
+    });
+  });
+
+  var data = d3.nest()
+    .key((d) => d3.timeWeek(d.date))
+    .rollup((a) => {
+      return {
+        'date': d3.timeWeek(a[0].date),
+        'freq': a.length
+      };
+    })
+    .entries(events);
+
+  data.sort((a, b) => d3.descending(a.key, b.key))
+  var extent = d3.extent(data, (d) => d.value.date);
+  var weeks = d3.timeWeeks(extent[0], extent[1]);
+
+  var width = +freq.attr('width'),
+    height = +freq.attr('height');
+
+  var x = d3.scaleTime().range([0, width]),
+      y = d3.scaleLinear().rangeRound([height, 0]);
+
+  var g = freq.append("g");
+
+  x.domain(extent);
+  y.domain([0, d3.max(data, (d) => d.value.freq)]);
+
+  g.selectAll(".bar")
+    .data(data)
+    .enter().append("rect")
+      .attr("class", "bar")
+      .attr("x", (d) => x(d.value.date))
+      .attr("y", (d) => y(d.value.freq))
+      .attr("width", width / weeks.length)
+      .attr("height", (d) => height - y(d.value.freq))
+      .append('title').text((d) => d.value.date);
+
+  var brush = d3.brushX()
+    .extent([[0, 0], [width, height]])
+    .on("end", brushed);
+
+  window.brush = brush;
+
+  window.brushRange = freq.append("g")
+    .attr("class", "brush")
+    .call(brush)
+    .call(brush.move, x.range());
+
+  brush.move(brushRange, [0, 80]);
+
+  function brushed() {
+    if (d3.event.sourceEvent && d3.event.sourceEvent.type === "zoom")
+      return; // ignore brush-by-zoom
+    var s = d3.event.selection || x.range();
+    var slice = s.map(x.invert);
+    updateWindow({start: slice[0], end: slice[1]});
+    // x.domain(s.map(x.invert, x2));
+    // focus.select(".area").attr("d", area);
+    // focus.select(".axis--x").call(xAxis);
+    // svg.select(".zoom").call(zoom.transform, d3.zoomIdentity
+    //     .scale(width / (s[1] - s[0]))
+    //     .translate(-s[0], 0));
+  }
+}
+
+// Hash Tag Easter Egg
+window.addEventListener('DOMContentLoaded', function() {
+  var strauss = new Audio('Walzer_An_der_sch_nen_blauen_Donau_Schloss-Schoenbrunn-Konzerte_Wien_full-length.mp3');
+  strauss.load();
+
+  var animation = null;
+
+  var duration = 37;
+
+  var step = function() {
+    var t = strauss.currentTime - 97.0;
+
+    if (t > duration) {
+      strauss.pause();
+      clearInterval(step);
+      return;
+    }
+
+    var width = brush.extent()()[1][0];
+    var offset = t / duration * width;
+    brush.move(brushRange, [offset, offset + 80]);
+  };
+
+  document.body.addEventListener('keydown', function(e) {
+    if (['INPUT', 'SELECT', 'TEXTAREA'].indexOf(e.target.nodeName) > -1)
+      return;
+
+    if (e.keyCode == 80) {
+      if (!strauss.paused) {
+        strauss.pause();
+        clearInterval(animation);
+      } else {
+        strauss.currentTime = 97.0;
+        strauss.play();
+        animation = setInterval(step, 500);
+      }
+      e.preventDefault();
+    }
+  });
+});
+
+</script>
+
